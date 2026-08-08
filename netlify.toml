@@ -1,0 +1,14 @@
+[build]
+  command = "npm run build"
+  publish = "dist"
+
+[build.environment]
+  # Vite 8 needs a modern runtime; pinning keeps local and CI builds identical.
+  NODE_VERSION = "22"
+
+# The app routes on the client, so every path has to be served index.html.
+# Without this, opening /menu or /schedule directly returns a 404 from Netlify.
+[[redirects]]
+  from = "/*"
+  to = "/index.html"
+  status = 200

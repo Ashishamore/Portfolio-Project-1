@@ -1,0 +1,50 @@
+@import "tailwindcss";
+
+/* Real phones don't render persistent scrollbars, so a mockup shouldn't
+   either. Scrolling behaviour itself is untouched — only the track is hidden. */
+* {
+  scrollbar-width: none;
+  -ms-overflow-style: none;
+}
+
+*::-webkit-scrollbar {
+  display: none;
+}
+
+/* Search overlay entrance. The field starts low, roughly where it sits on
+   Home, and eases up to the top so it reads as the same bar moving. */
+@keyframes overlay-fade {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+@keyframes search-rise {
+  from { opacity: 0; transform: translateY(120px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+@keyframes content-rise {
+  from { opacity: 0; transform: translateY(12px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+.animate-overlay {
+  animation: overlay-fade 200ms ease-out both;
+}
+
+.animate-search-rise {
+  animation: search-rise 340ms cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+
+.animate-content-rise {
+  animation: content-rise 280ms ease-out 120ms both;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .animate-overlay,
+  .animate-search-rise,
+  .animate-content-rise {
+    animation-duration: 1ms;
+    animation-delay: 0ms;
+  }
+}
