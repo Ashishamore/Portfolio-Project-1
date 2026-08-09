@@ -181,10 +181,11 @@ export default function ProfileView({
       <Section title="Availability">
         <AvailabilityCalendar
           statusOf={statusOf}
-          caption={isOwn ? 'Tap a day for its schedule. Set statuses from the Schedule tab.' : undefined}
+          caption={isOwn ? 'Tap a day to set your availability or see what is booked.' : undefined}
           // Only your own shoots are ours to list; other profiles publish booked days alone.
           eventsOn={isOwn ? assignmentsOn : undefined}
           canCreate={isOwn}
+          editable={isOwn}
         />
       </Section>
 

@@ -13,6 +13,8 @@ import {
   weekdayName,
 } from '../lib/date'
 import { useStore } from '../lib/storeContext'
+import { worksOn } from '../lib/shifts'
+import DayStatusPill from './DayStatusPill'
 import { InviteBadge, PinIcon } from './ui'
 import type { Assignment, DayStatus } from '../lib/types'
 
@@ -38,6 +40,7 @@ export default function AvailabilityCalendar({
   caption,
   eventsOn,
   canCreate = false,
+  editable = false,
 }: {
   statusOf: (iso: string) => DayStatus
   /** Shown under the legend, e.g. to say where the statuses are edited. */
@@ -46,6 +49,8 @@ export default function AvailabilityCalendar({
   eventsOn?: (iso: string) => Assignment[]
   /** Whether an empty day offers to start an assignment on it. */
   canCreate?: boolean
+  /** Whether the day sheet lets the status be changed — only on the user's own calendar. */
+  editable?: boolean
 }) {
   const today = new Date()
   const todayISO = toISO(today)
@@ -185,6 +190,8 @@ export default function AvailabilityCalendar({
           status={statusOf(openDay)}
           events={eventsOn ? eventsOn(openDay) : null}
           canCreate={canCreate && openDay >= todayISO}
+          // A day already behind us is a record, not a plan, so it stays read-only.
+          editable={editable && openDay >= todayISO}
           onClose={() => setOpenDay(null)}
         />
       )}
@@ -198,6 +205,7 @@ function DaySheet({
   status,
   events,
   canCreate,
+  editable,
   onClose,
 }: {
   iso: string
@@ -205,10 +213,28 @@ function DaySheet({
   /** `null` when this profile does not publish its schedule. */
   events: Assignment[] | null
   canCreate: boolean
+  /** Whether the status is the user's to change from here. */
+  editable: boolean
   onClose: () => void
 }) {
-  const { currentUser } = useStore()
+  const { currentUser, getPhotographer, setDayStatus, isDayLocked } = useStore()
   const badge = STATUS_BADGES[status]
+
+  // A shoot the user accepted from someone else holds the day at Occupied — they
+  // have already promised it away, so it is not theirs to mark free.
+  const locked = isDayLocked(iso)
+  const lockReason = useMemo(() => {
+    if (!locked) return undefined
+    const booking = events?.find(
+      (a) =>
+        a.ownerId !== currentUser.id &&
+        a.invites[currentUser.id] === 'accepted' &&
+        worksOn(a, currentUser.id, iso),
+    )
+    if (!booking) return undefined
+    const owner = getPhotographer(booking.ownerId)
+    return `${owner?.name ?? 'Someone'} booked you on "${booking.name}", so this day stays Occupied.`
+  }, [locked, events, currentUser.id, iso, getPhotographer])
 
   // Unanswered invitations lead: they are the only thing on the day that still
   // wants something from the user. Everything else is already on the schedule.
@@ -246,12 +272,33 @@ function DaySheet({
                 )}
               </p>
             </div>
-            <span
-              className={`shrink-0 rounded-full px-2 py-0.5 text-[10px] font-semibold ${badge.className}`}
-            >
-              {badge.label}
-            </span>
+            {editable ? (
+              <div className="shrink-0">
+                <DayStatusPill
+                  status={status}
+                  dateLabel={`${formatDayHeading(iso)} ${weekdayName(iso)}`}
+                  onChange={(next) => setDayStatus(iso, next)}
+                  locked={locked}
+                  lockReason={lockReason}
+                />
+              </div>
+            ) : (
+              <span
+                className={`shrink-0 rounded-full px-2 py-0.5 text-[10px] font-semibold ${badge.className}`}
+              >
+                {badge.label}
+              </span>
+            )}
           </div>
+
+          {/* The pill only carries the lock as a tooltip, which a touch screen never
+              shows — so the reason it will not move is spelled out here instead. */}
+          {editable && locked && lockReason && (
+            <p className="mt-2 flex items-start gap-1.5 text-[10px] leading-relaxed text-slate-400">
+              <span aria-hidden>🔒</span>
+              <span>{lockReason}</span>
+            </p>
+          )}
         </div>
 
         <div className="px-5">
