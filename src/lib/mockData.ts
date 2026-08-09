@@ -411,9 +411,18 @@ export const initialAssignments: Assignment[] = [
     startTime: '06:00',
     durationHours: 8,
     approved: true,
-    participantIds: ['p1'],
-    roles: { me: 'Owner', p1: 'Candid Photographer' },
-    invites: { p1: 'accepted' },
+    participantIds: ['p1', 'p5'],
+    // Nobody is on all three days: Ananya shoots the mehendi and the wedding
+    // morning, and Simran covers the sangeet evening in between.
+    shifts: {
+      p1: [
+        { date: isoFromToday(14), startTime: '06:00', durationHours: 8 },
+        { date: isoFromToday(16), startTime: '06:00', durationHours: 8 },
+      ],
+      p5: [{ date: isoFromToday(15), startTime: '16:00', durationHours: 6 }],
+    },
+    roles: { me: 'Owner', p1: 'Candid Photographer', p5: 'Candid Photographer' },
+    invites: { p1: 'accepted', p5: 'awaited' },
   },
   {
     id: 'a2',
@@ -427,6 +436,18 @@ export const initialAssignments: Assignment[] = [
     durationHours: 6,
     approved: false,
     participantIds: ['p2', 'p3'],
+    // Aerials are done in the first two days; the ground stills follow after.
+    shifts: {
+      p2: [
+        { date: isoFromToday(28), startTime: '08:30', durationHours: 6 },
+        { date: isoFromToday(29), startTime: '08:30', durationHours: 6 },
+      ],
+      p3: [
+        { date: isoFromToday(30), startTime: '08:30', durationHours: 6 },
+        { date: isoFromToday(31), startTime: '08:30', durationHours: 6 },
+        { date: isoFromToday(32), startTime: '08:30', durationHours: 6 },
+      ],
+    },
     roles: { me: 'Owner', p2: 'Drone Pilot', p3: 'Candid Photographer' },
     // Priya passed on this one. She keeps her seat in the group chat regardless.
     invites: { p2: 'accepted', p3: 'rejected' },
@@ -444,6 +465,12 @@ export const initialAssignments: Assignment[] = [
     durationHours: 4,
     approved: false,
     participantIds: ['p2', 'p3'],
+    // One day, two call times — Rohan covers the evening, Priya comes in for the
+    // cake cutting and stays through the after-party.
+    shifts: {
+      p2: [{ date: isoFromToday(0), startTime: '19:00', durationHours: 4 }],
+      p3: [{ date: isoFromToday(0), startTime: '21:00', durationHours: 3 }],
+    },
     roles: { me: 'Owner', p2: 'Candid Photographer', p3: 'Assistant' },
     invites: { p2: 'accepted', p3: 'accepted' },
   },
@@ -459,6 +486,8 @@ export const initialAssignments: Assignment[] = [
     durationHours: 3,
     approved: true,
     participantIds: ['p4'],
+    // Empty means what it says: everyone is on for the whole shoot.
+    shifts: {},
     roles: { me: 'Owner', p4: 'Cinematographer' },
     invites: { p4: 'accepted' },
   },
@@ -476,6 +505,11 @@ export const initialAssignments: Assignment[] = [
     durationHours: 6,
     approved: true,
     participantIds: ['me', 'p5'],
+    // The user comes in an hour after the crew call — the stage work starts late.
+    shifts: {
+      me: [{ date: isoFromToday(4), startTime: '19:00', durationHours: 5 }],
+      p5: [{ date: isoFromToday(4), startTime: '18:00', durationHours: 6 }],
+    },
     roles: { p1: 'Owner', me: 'Candid Photographer', p5: 'Assistant' },
     invites: { me: 'accepted', p5: 'accepted' },
   },
@@ -491,6 +525,7 @@ export const initialAssignments: Assignment[] = [
     durationHours: 9,
     approved: false,
     participantIds: ['me'],
+    shifts: {},
     roles: { p4: 'Owner', me: 'Candid Photographer' },
     // The one invite still on the signed-in user's plate — this is what the
     // "added you to an assignment" notification opens onto.

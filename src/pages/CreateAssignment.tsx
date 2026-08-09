@@ -78,6 +78,8 @@ export default function CreateAssignment() {
       roles: { ...roles, [currentUser.id]: OWNER_ROLE },
       // Everyone picked here is being invited, not booked — each has to answer.
       invites: Object.fromEntries(participantIds.map((pid) => [pid, 'awaited' as const])),
+      // Nobody has been scheduled onto days yet; shifts fill in as invites are accepted.
+      shifts: {},
     })
 
     // Land on the schedule with the shoot's own date selected, so the new event

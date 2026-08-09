@@ -1,6 +1,6 @@
 import { useMemo, useState } from 'react'
 import { useStore } from '../lib/storeContext'
-import { formatINR } from '../lib/date'
+import { formatDate, formatINR } from '../lib/date'
 import { Avatar, Stars } from './ui'
 import FilterPanel from './FilterPanel'
 import { DEFAULT_FILTERS, activeChips, applyFilters, type Filters } from '../lib/filters'
@@ -10,11 +10,20 @@ import { DEFAULT_FILTERS, activeChips, applyFilters, type Filters } from '../lib
  * facet filters as the home overlay for reaching everyone else.
  */
 export default function ParticipantPicker({
+  title = 'Add participants',
   selectedIds,
+  conflictDates = [],
   onToggle,
   onClose,
 }: {
+  /** Names what is being staffed — the shoot, or one day of it. */
+  title?: string
   selectedIds: string[]
+  /**
+   * The days being staffed. Anyone already booked on one of them is flagged, since
+   * hiring for a single day is usually a search for whoever is free on that day.
+   */
+  conflictDates?: string[]
   onToggle: (id: string) => void
   onClose: () => void
 }) {
@@ -56,7 +65,7 @@ export default function ParticipantPicker({
         <div className="shrink-0 px-5 pb-3 pt-4">
           <div className="mx-auto mb-3 h-1 w-10 rounded-full bg-white/20" />
           <div className="flex items-center justify-between">
-            <h2 className="text-sm font-semibold text-white">Add participants</h2>
+            <h2 className="text-sm font-semibold text-white">{title}</h2>
             <button type="button" onClick={onClose} className="text-xs font-semibold text-indigo-400">
               Done
             </button>
@@ -145,6 +154,7 @@ export default function ParticipantPicker({
         <div className="min-h-0 flex-1 space-y-2 overflow-y-auto px-5">
           {results.map((p) => {
             const on = selectedIds.includes(p.id)
+            const clashes = p.occupiedDates.filter((d) => conflictDates.includes(d))
             return (
               <button
                 key={p.id}
@@ -163,6 +173,11 @@ export default function ParticipantPicker({
                   <p className="truncate text-[10px] text-slate-500">
                     {p.city} · {p.specialties.join(', ')}
                   </p>
+                  {clashes.length > 0 && (
+                    <p className="truncate text-[10px] font-medium text-amber-400">
+                      Booked {clashes.length === 1 ? formatDate(clashes[0]) : `${clashes.length} of these days`}
+                    </p>
+                  )}
                 </div>
                 <div className="shrink-0 text-right">
                   <Stars rating={p.rating} className="text-[10px]" />

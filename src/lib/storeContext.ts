@@ -55,9 +55,30 @@ export type Store = {
   getAssignment: (id: string) => Assignment | undefined
   /** True only for the assignment's owner; everyone else is view-only. */
   canEditAssignment: (id: string) => boolean
-  /** Adding someone sends an invite — they land on the crew as 'awaited'. */
-  addParticipant: (assignmentId: string, photographerId: string, role?: string) => void
+  /**
+   * Adding someone sends an invite — they land on the crew as 'awaited'.
+   * `dates` staffs particular days of a longer shoot; without it they are hired
+   * for the whole run.
+   */
+  addParticipant: (
+    assignmentId: string,
+    photographerId: string,
+    role?: string,
+    dates?: string[],
+  ) => void
   removeParticipant: (assignmentId: string, photographerId: string) => void
+  /**
+   * Which days of the run a crew member works. Days they already had keep their
+   * hours. An empty list is ignored — dropping someone is `removeParticipant`.
+   */
+  setParticipantDays: (assignmentId: string, photographerId: string, dates: string[]) => void
+  /** One person's hours on one day, for when a day runs on more than one crew. */
+  setShiftTime: (
+    assignmentId: string,
+    photographerId: string,
+    date: string,
+    patch: { startTime?: string; durationHours?: number },
+  ) => void
   setParticipantRole: (assignmentId: string, photographerId: string, role: string) => void
   /**
    * Where a member stands on their invite. Undefined for the owner and for

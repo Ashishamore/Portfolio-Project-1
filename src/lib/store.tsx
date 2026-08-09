@@ -1,6 +1,15 @@
 import { useCallback, useMemo, useState, type ReactNode } from 'react'
-import type { Assignment } from './types'
+import type { Assignment, Shift } from './types'
 import { assignmentDates, toISO } from './date'
+import {
+  assignmentDays,
+  fullRun,
+  remapShifts,
+  retimeShifts,
+  shiftsOf,
+  withDays,
+  worksOn,
+} from './shifts'
 import { DEFAULT_ROLE } from './roles'
 import type {
   ActivityEntry,
@@ -190,13 +199,32 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     [logActivity],
   )
 
-  /** Owner-only edit. Anyone else holds view-only access to an assignment. */
+  /**
+   * Owner-only edit. Anyone else holds view-only access to an assignment.
+   *
+   * Editing the run itself carries the crew's own days along with it: moving the
+   * shoot keeps everyone on the same day of it, shortening it drops the days that
+   * no longer exist, and changing the call time moves whoever was on the default
+   * while leaving hours somebody set by hand alone.
+   */
   const updateAssignment = useCallback(
     (assignmentId: string, patch: Partial<Omit<Assignment, 'id' | 'ownerId'>>) => {
       setAssignments((prev) =>
-        prev.map((a) =>
-          a.id === assignmentId && a.ownerId === currentUser.id ? { ...a, ...patch } : a,
-        ),
+        prev.map((a) => {
+          if (a.id !== assignmentId || a.ownerId !== currentUser.id) return a
+
+          const next = { ...a, ...patch }
+          if (patch.shifts) return next
+
+          let shifts = a.shifts
+          if (patch.startTime !== undefined || patch.durationHours !== undefined) {
+            shifts = retimeShifts(shifts, a, next)
+          }
+          if (patch.startDate !== undefined || patch.durationDays !== undefined) {
+            shifts = remapShifts(shifts, assignmentDays(a), assignmentDays(next), fullRun(next))
+          }
+          return { ...next, shifts }
+        }),
       )
     },
     [],
@@ -227,21 +255,35 @@ export function StoreProvider({ children }: { children: ReactNode }) {
   )
 
   // Adding someone is an invitation, not a booking, so they start out unanswered.
+  // `dates` is how a single day of a longer shoot gets staffed on its own; without
+  // it they are hired for the whole run, which is what most shoots want.
   const addParticipant = useCallback(
-    (assignmentId: string, photographerId: string, role: string = DEFAULT_ROLE) => {
+    (assignmentId: string, photographerId: string, role: string = DEFAULT_ROLE, dates?: string[]) => {
       setAssignments((prev) =>
-        prev.map((a) =>
-          a.id === assignmentId &&
-          a.ownerId === currentUser.id &&
-          !a.participantIds.includes(photographerId)
-            ? {
-                ...a,
-                participantIds: [...a.participantIds, photographerId],
-                roles: { ...a.roles, [photographerId]: role },
-                invites: { ...a.invites, [photographerId]: 'awaited' },
-              }
-            : a,
-        ),
+        prev.map((a) => {
+          if (
+            a.id !== assignmentId ||
+            a.ownerId !== currentUser.id ||
+            a.participantIds.includes(photographerId)
+          ) {
+            return a
+          }
+
+          const days = dates?.length ? assignmentDays(a).filter((d) => dates.includes(d)) : []
+          const shifts: Shift[] = (days.length ? days : assignmentDays(a)).map((date) => ({
+            date,
+            startTime: a.startTime,
+            durationHours: a.durationHours,
+          }))
+
+          return {
+            ...a,
+            participantIds: [...a.participantIds, photographerId],
+            shifts: { ...a.shifts, [photographerId]: shifts },
+            roles: { ...a.roles, [photographerId]: role },
+            invites: { ...a.invites, [photographerId]: 'awaited' },
+          }
+        }),
       )
     },
     [],
@@ -253,15 +295,70 @@ export function StoreProvider({ children }: { children: ReactNode }) {
         if (a.id !== assignmentId || a.ownerId !== currentUser.id) return a
         const { [photographerId]: _droppedRole, ...roles } = a.roles
         const { [photographerId]: _droppedInvite, ...invites } = a.invites
+        const { [photographerId]: _droppedShifts, ...shifts } = a.shifts
         return {
           ...a,
           participantIds: a.participantIds.filter((id) => id !== photographerId),
+          shifts,
           roles,
           invites,
         }
       }),
     )
   }, [])
+
+  /**
+   * Which days of the run a crew member is hired for. Days they already had keep
+   * the hours they were given. Clearing every day is not a way to drop someone —
+   * removing them from the assignment is — so an empty list is ignored.
+   */
+  const setParticipantDays = useCallback(
+    (assignmentId: string, photographerId: string, dates: string[]) => {
+      if (dates.length === 0) return
+      setAssignments((prev) =>
+        prev.map((a) =>
+          a.id === assignmentId &&
+          a.ownerId === currentUser.id &&
+          a.participantIds.includes(photographerId)
+            ? { ...a, shifts: { ...a.shifts, [photographerId]: withDays(a, photographerId, dates) } }
+            : a,
+        ),
+      )
+    },
+    [],
+  )
+
+  /** One person's hours on one day — how two crews split a single day between them. */
+  const setShiftTime = useCallback(
+    (
+      assignmentId: string,
+      photographerId: string,
+      date: string,
+      patch: { startTime?: string; durationHours?: number },
+    ) => {
+      setAssignments((prev) =>
+        prev.map((a) => {
+          if (
+            a.id !== assignmentId ||
+            a.ownerId !== currentUser.id ||
+            !a.participantIds.includes(photographerId)
+          ) {
+            return a
+          }
+          const own = shiftsOf(a, photographerId)
+          if (!own.some((s) => s.date === date)) return a
+          return {
+            ...a,
+            shifts: {
+              ...a.shifts,
+              [photographerId]: own.map((s) => (s.date === date ? { ...s, ...patch } : s)),
+            },
+          }
+        }),
+      )
+    },
+    [],
+  )
 
   const inviteStatus = useCallback(
     (assignmentId: string, photographerId: string) =>
@@ -334,12 +431,17 @@ export function StoreProvider({ children }: { children: ReactNode }) {
   /**
    * Days another photographer booked the user onto and the user accepted. An
    * accepted invite is a commitment to someone else, so it is not theirs to
-   * reverse; a pending or declined one leaves the day their own.
+   * reverse; a pending or declined one leaves the day their own. Only the days
+   * they were actually called for count — being on a five-day shoot for two of
+   * them leaves the other three free to book.
    */
   const isDayLocked = useCallback(
     (iso: string) =>
       (byDate.get(iso) ?? []).some(
-        (a) => a.ownerId !== currentUser.id && a.invites[currentUser.id] === 'accepted',
+        (a) =>
+          a.ownerId !== currentUser.id &&
+          a.invites[currentUser.id] === 'accepted' &&
+          worksOn(a, currentUser.id, iso),
       ),
     [byDate],
   )
@@ -351,7 +453,9 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     (iso: string): DayStatus => {
       if (isDayLocked(iso)) return 'occupied'
       const claimed = (byDate.get(iso) ?? []).some(
-        (a) => a.ownerId === currentUser.id || a.invites[currentUser.id] !== 'rejected',
+        (a) =>
+          worksOn(a, currentUser.id, iso) &&
+          (a.ownerId === currentUser.id || a.invites[currentUser.id] !== 'rejected'),
       )
       return markedDays[iso] ?? (claimed ? 'occupied' : 'available')
     },
@@ -546,6 +650,8 @@ export function StoreProvider({ children }: { children: ReactNode }) {
       canEditAssignment,
       addParticipant,
       removeParticipant,
+      setParticipantDays,
+      setShiftTime,
       setParticipantRole,
       inviteStatus,
       respondToInvite,
@@ -605,6 +711,8 @@ export function StoreProvider({ children }: { children: ReactNode }) {
       canEditAssignment,
       addParticipant,
       removeParticipant,
+      setParticipantDays,
+      setShiftTime,
       setParticipantRole,
       inviteStatus,
       respondToInvite,

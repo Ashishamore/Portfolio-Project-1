@@ -4,19 +4,33 @@ import { useStore } from '../lib/storeContext'
 import {
   addDays,
   addHoursToTime,
+  formatDayHeading,
   formatLongDate,
   formatTime12,
   fromISO,
   toISO,
 } from '../lib/date'
+import {
+  assignmentDays,
+  crewOn,
+  describeDays,
+  shiftHours,
+  shiftOn,
+  shiftsOf,
+} from '../lib/shifts'
 import { DEFAULT_ROLE, roleIcon } from '../lib/roles'
 import type { Assignment, InviteResponse, InviteStatus, Photographer } from '../lib/types'
-import { Avatar, InviteBadge, PinIcon } from '../components/ui'
+import { Avatar, InviteBadge } from '../components/ui'
 import ChatPanel from '../components/ChatPanel'
+import CrewScheduleSheet from '../components/CrewScheduleSheet'
+import LocationCard from '../components/LocationCard'
 import ParticipantPicker from '../components/ParticipantPicker'
 import RoleSheet from '../components/RoleSheet'
 
 type Tab = 'details' | 'chats'
+
+/** `null` is the whole run; an ISO date narrows the crew list to that day. */
+type DayFilter = string | null
 
 export default function AssignmentDetail() {
   const { id = '' } = useParams()
@@ -32,6 +46,8 @@ export default function AssignmentDetail() {
     toggleAssignmentApproval,
     addParticipant,
     removeParticipant,
+    setParticipantDays,
+    setShiftTime,
     setParticipantRole,
     respondToInvite,
   } = useStore()
@@ -40,7 +56,10 @@ export default function AssignmentDetail() {
   const [editing, setEditing] = useState(false)
   const [pickerOpen, setPickerOpen] = useState(false)
   const [roleTargetId, setRoleTargetId] = useState<string | null>(null)
+  const [scheduleTargetId, setScheduleTargetId] = useState<string | null>(null)
   const [confirmDelete, setConfirmDelete] = useState(false)
+  // Which day of the run the crew list is showing. Starts on the whole shoot.
+  const [dayFilter, setDayFilter] = useState<DayFilter>(null)
 
   const assignment = getAssignment(id)
 
@@ -62,12 +81,48 @@ export default function AssignmentDetail() {
     .filter((p): p is Photographer => Boolean(p))
   const conversation = getAssignmentConversation(assignment.id)
   const roleTarget = crew.find((p) => p.id === roleTargetId)
+  const scheduleTarget = crew.find((p) => p.id === scheduleTargetId)
   // Undefined when the user owns the shoot — an owner is never asked to join it.
   const myInvite = assignment.invites[currentUser.id]
 
   const teamSize = crew.length + 1
   const endDate = toISO(addDays(fromISO(assignment.startDate), assignment.durationDays - 1))
   const endTime = addHoursToTime(assignment.startTime, assignment.durationHours)
+
+  const days = assignmentDays(assignment)
+  const multiDay = days.length > 1
+  // Narrowing to a day shows only who is called for it — a five-day shoot rarely
+  // runs on the same crew throughout, so "everyone" is the wrong list to staff from.
+  const dayCrewIds = dayFilter ? crewOn(assignment, dayFilter) : assignment.participantIds
+  const visibleCrew = crew.filter((p) => dayCrewIds.includes(p.id))
+  const myShifts = assignment.participantIds.includes(currentUser.id)
+    ? shiftsOf(assignment, currentUser.id)
+    : null
+
+  /**
+   * In the whole-run view this is who is on the assignment at all. With a day
+   * picked it staffs that day instead: someone already on the shoot gains or
+   * loses the one day, and only losing their last day takes them off it.
+   */
+  const toggleCrew = (pid: string) => {
+    if (!assignment.participantIds.includes(pid)) {
+      addParticipant(assignment.id, pid, DEFAULT_ROLE, dayFilter ? [dayFilter] : undefined)
+      return
+    }
+    if (!dayFilter) {
+      removeParticipant(assignment.id, pid)
+      return
+    }
+
+    const dates = shiftsOf(assignment, pid).map((s) => s.date)
+    if (!dates.includes(dayFilter)) {
+      setParticipantDays(assignment.id, pid, [...dates, dayFilter])
+    } else if (dates.length === 1) {
+      removeParticipant(assignment.id, pid)
+    } else {
+      setParticipantDays(assignment.id, pid, dates.filter((d) => d !== dayFilter))
+    }
+  }
 
   return (
     <div className="relative flex h-full flex-col">
@@ -138,11 +193,17 @@ export default function AssignmentDetail() {
                         ({assignment.durationHours}h)
                       </span>
                     </p>
-                    <p className="flex items-start gap-1.5 pt-1 text-sm text-rose-400">
-                      <PinIcon className="mt-0.5 h-4 w-4 shrink-0" />
-                      <span>Location : {assignment.location}</span>
-                    </p>
+                    {/* Crew are hired per day, so the user's own call is rarely the
+                        whole shoot — it is the first thing they need from this page. */}
+                    {myShifts && (
+                      <p className="!mt-2 rounded-lg border border-indigo-400/25 bg-indigo-500/10 px-2.5 py-1.5 text-[11px] leading-relaxed text-indigo-200">
+                        <span className="font-semibold">Your call:</span>{' '}
+                        {scheduleLine(assignment, currentUser.id, null)}
+                      </p>
+                    )}
                   </div>
+
+                  <LocationCard location={assignment.location} name={assignment.name} />
 
                   <div className="flex flex-wrap items-center gap-2">
                     <ApprovalControl
@@ -170,7 +231,7 @@ export default function AssignmentDetail() {
               <div>
                 <div className="mb-2 flex items-center justify-between">
                   <h2 className="text-sm font-semibold text-white">
-                    Participants{' '}
+                    Crew{' '}
                     <span className="font-normal text-slate-400">
                       ({String(teamSize).padStart(2, '0')})
                     </span>
@@ -178,16 +239,27 @@ export default function AssignmentDetail() {
                   {!canEdit && <span className="text-[10px] text-slate-500">View only</span>}
                 </div>
 
+                {/* A day at a time is how a multi-day shoot is actually staffed. */}
+                {multiDay && (
+                  <DayFilterStrip
+                    assignment={assignment}
+                    days={days}
+                    selected={dayFilter}
+                    onSelect={setDayFilter}
+                  />
+                )}
+
                 <div className="divide-y divide-white/5">
                   {owner && (
                     <ParticipantRow
                       person={owner}
                       isSelf={owner.id === currentUser.id}
                       subtitle="Assignment Owner"
+                      schedule={multiDay ? `On all ${days.length} days` : undefined}
                     />
                   )}
 
-                  {crew.map((p) => (
+                  {visibleCrew.map((p) => (
                     <ParticipantRow
                       key={p.id}
                       person={p}
@@ -195,14 +267,20 @@ export default function AssignmentDetail() {
                       subtitle={`Role : ${assignment.roles[p.id] ?? DEFAULT_ROLE}`}
                       role={assignment.roles[p.id] ?? DEFAULT_ROLE}
                       invite={assignment.invites[p.id] ?? 'awaited'}
+                      schedule={scheduleLine(assignment, p.id, dayFilter)}
                       onEditRole={canEdit ? () => setRoleTargetId(p.id) : undefined}
+                      onEditSchedule={canEdit ? () => setScheduleTargetId(p.id) : undefined}
                       onRemove={canEdit ? () => removeParticipant(assignment.id, p.id) : undefined}
                     />
                   ))}
                 </div>
 
-                {crew.length === 0 && (
-                  <p className="py-3 text-[11px] text-slate-500">No crew on this assignment yet.</p>
+                {visibleCrew.length === 0 && (
+                  <p className="py-3 text-[11px] text-slate-500">
+                    {dayFilter
+                      ? `Nobody is called for ${formatDayHeading(dayFilter)} yet — that day is yours alone.`
+                      : 'No crew on this assignment yet.'}
+                  </p>
                 )}
 
                 {canEdit && (
@@ -211,7 +289,9 @@ export default function AssignmentDetail() {
                     onClick={() => setPickerOpen(true)}
                     className="mt-2 w-full rounded-xl border border-dashed border-white/15 py-2.5 text-xs font-medium text-slate-400 transition hover:border-indigo-500/40 hover:text-white"
                   >
-                    + Add participants
+                    {dayFilter
+                      ? `+ Hire for ${dayLabelOf(days, dayFilter)} · ${formatDayHeading(dayFilter)}`
+                      : '+ Add crew'}
                   </button>
                 )}
               </div>
@@ -268,13 +348,33 @@ export default function AssignmentDetail() {
 
       {pickerOpen && (
         <ParticipantPicker
-          selectedIds={assignment.participantIds}
-          onToggle={(pid) =>
-            assignment.participantIds.includes(pid)
-              ? removeParticipant(assignment.id, pid)
-              : addParticipant(assignment.id, pid)
-          }
+          title={dayFilter ? `Hire for ${formatDayHeading(dayFilter)}` : 'Add crew'}
+          selectedIds={dayCrewIds}
+          conflictDates={dayFilter ? [dayFilter] : days}
+          onToggle={toggleCrew}
           onClose={() => setPickerOpen(false)}
+        />
+      )}
+
+      {scheduleTarget && (
+        <CrewScheduleSheet
+          name={scheduleTarget.name}
+          gradient={scheduleTarget.gradient}
+          avatar={scheduleTarget.avatar}
+          days={days}
+          shifts={shiftsOf(assignment, scheduleTarget.id)}
+          occupiedDates={scheduleTarget.occupiedDates}
+          onToggleDay={(iso) => {
+            const dates = shiftsOf(assignment, scheduleTarget.id).map((s) => s.date)
+            setParticipantDays(
+              assignment.id,
+              scheduleTarget.id,
+              dates.includes(iso) ? dates.filter((d) => d !== iso) : [...dates, iso],
+            )
+          }}
+          onSelectAll={() => setParticipantDays(assignment.id, scheduleTarget.id, days)}
+          onSetTime={(iso, patch) => setShiftTime(assignment.id, scheduleTarget.id, iso, patch)}
+          onClose={() => setScheduleTargetId(null)}
         />
       )}
 
@@ -299,6 +399,108 @@ export default function AssignmentDetail() {
         />
       )}
     </div>
+  )
+}
+
+/** "Day 2" for a date inside the run — the same name the crew filter uses. */
+function dayLabelOf(days: string[], iso: string): string {
+  return `Day ${days.indexOf(iso) + 1}`
+}
+
+/**
+ * One person's hours in a single line. Narrowed to a day it is just their call
+ * for it; across the whole run it is the days they hold, plus their hours when
+ * those are the same every day.
+ */
+function scheduleLine(a: Assignment, photographerId: string, day: DayFilter): string {
+  if (day) {
+    const shift = shiftOn(a, photographerId, day)
+    return shift ? shiftHours(shift) : 'Not called this day'
+  }
+
+  const shifts = shiftsOf(a, photographerId)
+  const uniform = shifts.every(
+    (s) => s.startTime === shifts[0].startTime && s.durationHours === shifts[0].durationHours,
+  )
+  if (a.durationDays === 1) return shiftHours(shifts[0])
+  return `${describeDays(a, photographerId)} · ${uniform ? shiftHours(shifts[0]) : 'hours vary'}`
+}
+
+/** Whole run, then a tab per day carrying how many people are on it. */
+function DayFilterStrip({
+  assignment,
+  days,
+  selected,
+  onSelect,
+}: {
+  assignment: Assignment
+  days: string[]
+  selected: DayFilter
+  onSelect: (day: DayFilter) => void
+}) {
+  return (
+    <div className="mb-2.5 flex gap-1.5 overflow-x-auto pb-1">
+      <DayTab
+        label="All days"
+        hint={`${assignment.participantIds.length} on the shoot`}
+        active={selected === null}
+        onClick={() => onSelect(null)}
+      />
+      {days.map((iso, index) => {
+        const count = crewOn(assignment, iso).length
+        return (
+          <DayTab
+            key={iso}
+            label={`Day ${index + 1}`}
+            hint={formatDayHeading(iso)}
+            count={count}
+            active={selected === iso}
+            onClick={() => onSelect(iso)}
+          />
+        )
+      })}
+    </div>
+  )
+}
+
+function DayTab({
+  label,
+  hint,
+  count,
+  active,
+  onClick,
+}: {
+  label: string
+  hint: string
+  /** Crew called for the day. Absent on the whole-run tab. */
+  count?: number
+  active: boolean
+  onClick: () => void
+}) {
+  // A day nobody has been hired for is the one worth spotting from here.
+  const unstaffed = count === 0
+
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      aria-pressed={active}
+      className={`shrink-0 rounded-xl border px-2.5 py-1.5 text-left transition ${
+        active
+          ? 'border-indigo-400/50 bg-indigo-500/20'
+          : 'border-white/10 bg-white/5 hover:bg-white/10'
+      }`}
+    >
+      <span className={`block text-[11px] font-semibold ${active ? 'text-indigo-200' : 'text-white'}`}>
+        {label}
+      </span>
+      <span
+        className={`block text-[9px] ${unstaffed && !active ? 'text-amber-400/80' : 'text-slate-500'}`}
+      >
+        {hint}
+        {count !== undefined && ` · ${unstaffed ? 'no crew' : `${count} crew`}`}
+      </span>
+    </button>
   )
 }
 
@@ -450,7 +652,9 @@ function ParticipantRow({
   subtitle,
   role,
   invite,
+  schedule,
   onEditRole,
+  onEditSchedule,
   onRemove,
 }: {
   person: Photographer
@@ -460,7 +664,10 @@ function ParticipantRow({
   role?: string
   /** Present for crew. The owner was never invited, so their row carries none. */
   invite?: InviteStatus
+  /** The days and hours they were hired for, as the crew list currently reads them. */
+  schedule?: string
   onEditRole?: () => void
+  onEditSchedule?: () => void
   onRemove?: () => void
 }) {
   const [menuOpen, setMenuOpen] = useState(false)
@@ -481,6 +688,12 @@ function ParticipantRow({
           {role && <span aria-hidden>{roleIcon(role)} </span>}
           {subtitle}
         </p>
+        {schedule && (
+          <p className="flex items-center gap-1 truncate text-[10px] text-slate-400">
+            <ClockIcon />
+            {schedule}
+          </p>
+        )}
       </div>
 
       <button
@@ -514,6 +727,18 @@ function ParticipantRow({
                 View profile
               </Link>
             )}
+            {onEditSchedule && (
+              <button
+                type="button"
+                onClick={() => {
+                  setMenuOpen(false)
+                  onEditSchedule()
+                }}
+                className="block w-full rounded-lg px-2.5 py-2 text-left text-[11px] font-medium text-white transition hover:bg-white/5"
+              >
+                Days &amp; hours
+              </button>
+            )}
             {onEditRole && (
               <button
                 type="button"
@@ -545,6 +770,22 @@ function ParticipantRow({
         </>
       )}
     </div>
+  )
+}
+
+function ClockIcon() {
+  return (
+    <svg
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth={1.9}
+      aria-hidden
+      className="h-3 w-3 shrink-0"
+    >
+      <circle cx="12" cy="12" r="8.5" />
+      <path strokeLinecap="round" d="M12 7.5V12l3 1.8" />
+    </svg>
   )
 }
 

@@ -127,6 +127,23 @@ export type InviteStatus = 'awaited' | 'accepted' | 'rejected'
 /** An answered invite. The owner is never asked, so they hold neither. */
 export type InviteResponse = Exclude<InviteStatus, 'awaited'>
 
+/**
+ * One crew member's stint on one day of an assignment.
+ *
+ * A multi-day shoot is rarely staffed by the same people throughout, and a single
+ * day often runs on more than one crew: the drone pilot who is only free on the
+ * Tuesday, the second shooter who takes over once the first has to leave. So the
+ * hours worked are held per person per day rather than once for the whole shoot.
+ */
+export type Shift = {
+  /** ISO yyyy-mm-dd. Always one of the assignment's own days. */
+  date: string
+  /** 24h HH:mm this person is called for — need not be the shoot's call time. */
+  startTime: string
+  /** Hours they work that day. */
+  durationHours: number
+}
+
 export type Assignment = {
   id: string
   /** Photographer id of whoever created it — they hold the Owner role. */
@@ -144,6 +161,14 @@ export type Assignment = {
   approved: boolean
   /** The crew, excluding the owner. Includes the signed-in user when they were invited on. */
   participantIds: string[]
+  /**
+   * Photographer id → the days and hours that person was hired for. Everyone in
+   * `participantIds` has an entry, and nobody on the crew has an empty one — being
+   * on the assignment means working at least one of its days. Missing entries read
+   * as the whole run at the shoot's own call time, which is the ordinary case.
+   * The owner is not listed: they run the shoot end to end.
+   */
+  shifts: Record<string, Shift[]>
   /** Photographer id → role on this assignment, including the creator's Owner entry. */
   roles: Record<string, string>
   /**
