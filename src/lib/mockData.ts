@@ -498,6 +498,9 @@ export const initialAssignments: Assignment[] = [
     ownerId: 'p1',
     name: 'Deshmukh Reception — Pune',
     location: 'Conrad Pune, Maharashtra',
+    // Ananya pinned the hotel itself — a big venue where "Conrad Pune" alone
+    // would still leave the crew circling for the right entrance.
+    mapUrl: 'https://www.google.com/maps/place/Conrad+Pune/@18.5289,73.876,17z',
     description: 'Reception coverage. Ananya is running the shoot and needs a second shooter on the stage.',
     startDate: isoFromToday(4),
     durationDays: 1,

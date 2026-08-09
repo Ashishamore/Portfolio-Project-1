@@ -150,6 +150,12 @@ export type Assignment = {
   ownerId: string
   name: string
   location: string
+  /**
+   * A Google Maps link the owner attached, when the written location is not
+   * enough to find the spot — a gate on a farm road, one hall in a hotel. Absent
+   * on assignments where the location text speaks for itself.
+   */
+  mapUrl?: string
   description: string
   startDate: string
   durationDays: number

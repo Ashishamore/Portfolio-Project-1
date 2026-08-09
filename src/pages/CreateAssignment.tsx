@@ -7,6 +7,7 @@ import ComposerHeader from '../components/ComposerHeader'
 import ParticipantPicker from '../components/ParticipantPicker'
 import RoleSheet from '../components/RoleSheet'
 import { DEFAULT_ROLE, OWNER_ROLE, roleIcon } from '../lib/roles'
+import { isMapUrl, parseMapUrl } from '../lib/maps'
 
 export default function CreateAssignment() {
   const navigate = useNavigate()
@@ -16,6 +17,7 @@ export default function CreateAssignment() {
 
   const [name, setName] = useState('')
   const [location, setLocation] = useState('')
+  const [mapUrl, setMapUrl] = useState('')
   const [description, setDescription] = useState('')
   const [startDate, setStartDate] = useState(pickedDate ?? toISO(new Date()))
   const [durationDays, setDurationDays] = useState('1')
@@ -41,13 +43,30 @@ export default function CreateAssignment() {
     })
   }
 
+  /**
+   * A pasted link usually names the place Google pinned. Filling an empty
+   * location from it saves retyping, but never overwrites what was typed —
+   * "Conrad Pune" as written beats "Conrad Pune, Mangaldas Road" from the URL.
+   */
+  function handleMapUrl(value: string) {
+    setMapUrl(value)
+    if (location.trim() || !isMapUrl(value)) return
+    const { label } = parseMapUrl(value)
+    if (label) setLocation(label)
+  }
+
   function handleSubmit(e: React.FormEvent) {
     e.preventDefault()
     const days = Number(durationDays)
     const hours = Number(durationHours)
+    const link = mapUrl.trim()
 
     if (!name.trim() || !location.trim()) {
       setError('Assignment name and location are required.')
+      return
+    }
+    if (link && !isMapUrl(link)) {
+      setError('The map link must be a Google Maps URL — use Share → Copy link in Maps.')
       return
     }
     if (!Number.isFinite(days) || days < 1) {
@@ -67,6 +86,9 @@ export default function CreateAssignment() {
       ownerId: currentUser.id,
       name: name.trim(),
       location: location.trim(),
+      // Left off entirely when blank, so the detail page falls back to searching
+      // Google for the written location.
+      ...(link ? { mapUrl: link } : {}),
       description: description.trim(),
       startDate,
       durationDays: days,
@@ -109,6 +131,18 @@ export default function CreateAssignment() {
               placeholder="City, State"
               className={inputClass}
             />
+          </Field>
+
+          <Field label="Map link (optional)">
+            <input
+              value={mapUrl}
+              onChange={(e) => handleMapUrl(e.target.value)}
+              type="url"
+              inputMode="url"
+              placeholder="Paste a Google Maps link"
+              className={inputClass}
+            />
+            <MapLinkHint value={mapUrl} />
           </Field>
 
           <Field label="Description">
@@ -264,6 +298,40 @@ export default function CreateAssignment() {
 
 const inputClass =
   'w-full rounded-xl border border-white/10 bg-white/5 px-3.5 py-2.5 text-sm text-white placeholder:text-slate-500 focus:border-indigo-500/50 focus:outline-none'
+
+/**
+ * What the pasted link amounts to, answered while it is being typed rather than
+ * at submit — a wrong link is worth catching before the crew is standing on the
+ * wrong road.
+ */
+function MapLinkHint({ value }: { value: string }) {
+  const link = value.trim()
+  if (!link) {
+    return (
+      <p className="mt-1.5 text-[10px] leading-relaxed text-slate-500">
+        Open the spot in Google Maps, tap Share, then Copy link. Without one the crew
+        gets a search for the location above.
+      </p>
+    )
+  }
+
+  if (!isMapUrl(link)) {
+    return (
+      <p className="mt-1.5 text-[10px] leading-relaxed text-amber-300">
+        ⚠️ That is not a Google Maps link. Copy it from the Share button in Maps.
+      </p>
+    )
+  }
+
+  const { coords } = parseMapUrl(link)
+  return (
+    <p className="mt-1.5 text-[10px] leading-relaxed text-emerald-300">
+      {coords
+        ? `📍 Pinned to ${coords} — the crew gets this exact spot.`
+        : '📍 Link attached. Maps resolves it when the crew opens it.'}
+    </p>
+  )
+}
 
 function Field({ label, children }: { label: string; children: React.ReactNode }) {
   return (

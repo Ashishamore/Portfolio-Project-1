@@ -203,7 +203,11 @@ export default function AssignmentDetail() {
                     )}
                   </div>
 
-                  <LocationCard location={assignment.location} name={assignment.name} />
+                  <LocationCard
+                    location={assignment.location}
+                    name={assignment.name}
+                    mapUrl={assignment.mapUrl}
+                  />
 
                   <div className="flex flex-wrap items-center gap-2">
                     <ApprovalControl

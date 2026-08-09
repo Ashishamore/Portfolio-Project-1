@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react'
-import { mapDirectionsUrl, mapEmbedUrl, mapPlaceUrl } from '../lib/maps'
+import { directionsUrlFor, embedUrlFor, placeUrlFor } from '../lib/maps'
 import { PinIcon } from './ui'
 
 /** What the last Share attempt left behind, shown for a moment under the buttons. */
@@ -11,7 +11,16 @@ type Feedback = 'copied' | 'failed'
  * The preview does not pan or zoom — a map inside a scrolling page would trap
  * the scroll, so tapping it hands the location to Maps instead.
  */
-export default function LocationCard({ location, name }: { location: string; name: string }) {
+export default function LocationCard({
+  location,
+  name,
+  mapUrl,
+}: {
+  location: string
+  name: string
+  /** A Maps link the owner pinned, which outranks searching for the text. */
+  mapUrl?: string
+}) {
   const [feedback, setFeedback] = useState<Feedback | null>(null)
   const timer = useRef<number | undefined>(undefined)
 
@@ -35,7 +44,7 @@ export default function LocationCard({ location, name }: { location: string; nam
   }
 
   async function share() {
-    const url = mapPlaceUrl(place)
+    const url = placeUrlFor(place, mapUrl)
 
     // The share sheet where the device has one — the crew is most likely being
     // sent this from a phone, into whichever app they already talk in.
@@ -67,16 +76,16 @@ export default function LocationCard({ location, name }: { location: string; nam
         </div>
 
         <iframe
-          key={place}
+          key={`${place}|${mapUrl ?? ''}`}
           title={`Map showing ${place}`}
-          src={mapEmbedUrl(place)}
+          src={embedUrlFor(place, mapUrl)}
           loading="lazy"
           referrerPolicy="no-referrer-when-downgrade"
           className="pointer-events-none absolute inset-0 h-full w-full border-0"
         />
 
         <a
-          href={mapPlaceUrl(place)}
+          href={placeUrlFor(place, mapUrl)}
           target="_blank"
           rel="noreferrer"
           aria-label={`Open ${place} in Google Maps`}
@@ -96,13 +105,17 @@ export default function LocationCard({ location, name }: { location: string; nam
           <PinIcon className="mt-0.5 h-4 w-4 shrink-0 text-rose-400" />
           <span className="min-w-0">
             <span className="block text-sm font-medium leading-snug text-white">{place}</span>
-            <span className="block text-[11px] text-slate-500">Shoot location</span>
+            {/* A pinned link is worth calling out: it means this is the exact spot
+                the owner chose, not a search for the words above. */}
+            <span className="block text-[11px] text-slate-500">
+              {mapUrl?.trim() ? 'Pinned by the owner' : 'Shoot location'}
+            </span>
           </span>
         </p>
 
         <div className="flex gap-2">
           <a
-            href={mapDirectionsUrl(place)}
+            href={directionsUrlFor(place, mapUrl)}
             target="_blank"
             rel="noreferrer"
             className="flex flex-1 items-center justify-center gap-1.5 rounded-xl bg-indigo-500 py-2.5 text-xs font-semibold text-white transition hover:bg-indigo-400"
